@@ -6,19 +6,35 @@ const TurndownService = require("turndown");
 const app = express();
 const port = 3000;
 const turndownService = new TurndownService({
-    headingStyle: "atx",
-    bulletListMarker: "-"
+    headingStyle: "atx", // Converts <h1> to # Heading
+    bulletListMarker: "-" // Uses '-' for unordered lists instead of '*'
 });
 
-// Markdown formatting rules
+// Main content selectors (for different websites)
+const contentSelectors = [
+    "article",
+    "div.post-content", "div.entry-content", "div.article-content", "div.jeg_inner_content",
+    "div.main-content", "div.content-body", "div.post-body"
+];
+
+// Unwanted elements (ads, comments, sidebars, etc.)
+const unwantedSelectors = [
+    "script", "style", "aside", ".sidebar", ".related-articles", ".jeg_breadcrumbs", ".jeg_meta_container", ".jeg_share_top_container", ".ads_code",
+    ".jeg_share_bottom_container", ".jnews_content_bottom_ads", ".jnews_related_post_container", ".jnews_comment_container",
+    ".comments", ".share-buttons", ".ads"
+];
+
+// Custom rules for better Markdown formatting
 turndownService.addRule("strong", {
     filter: ["strong", "b"],
     replacement: (content) => `**${content}**`
 });
+
 turndownService.addRule("em", {
     filter: ["em", "i"],
     replacement: (content) => `*${content}*`
 });
+
 turndownService.addRule("links", {
     filter: "a",
     replacement: (content, node) => {
@@ -26,6 +42,7 @@ turndownService.addRule("links", {
         return href ? `[${content}](${href})` : content;
     }
 });
+
 turndownService.addRule("images", {
     filter: "img",
     replacement: (content, node) => {
@@ -37,55 +54,48 @@ turndownService.addRule("images", {
 
 app.get("/", async (req, res) => {
     const url = req.query.url;
-    if (!url) return res.status(400).send("❌ Please provide a URL as ?url=yourpage.com");
+    if (!url) {
+        return res.status(400).send("Please provide a URL as ?url=yourpage.com");
+    }
 
     try {
+        // Fetch the webpage content
         const { data } = await axios.get(url, {
             headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-                "Accept-Encoding": "gzip" // 🏆 Enable gzip compression
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
             },
-            maxRedirects: 3,
-            timeout: 8000 // 🏆 Reduce waiting time if the page is slow
+            maxRedirects: 5
         });
 
         const $ = cheerio.load(data);
-        let markdownContent = "";
 
-        // Find the main content (articles, if not inside "related" divs)
-        let mainContent = $("article").filter((_, el) => 
-            !$(el).parents("[class*='related'], [class*='similar'], [class*='sidebar']").length
-        );
-
-        // If no <article> is found, fallback to a large <div>
-        if (mainContent.length === 0) {
-            mainContent = $("div").filter((_, el) => $(el).text().length > 500).first();
+        // Try to find the main content
+        let articleHtml = "";
+        for (const selector of contentSelectors) {
+            articleHtml = $(selector).first().html();
+            if (articleHtml) break;
         }
 
-        if (!mainContent || mainContent.text().length < 300) {
-            return res.status(404).send("❌ No main content found.");
+        if (!articleHtml) {
+            return res.status(404).send("Main content not found.");
         }
 
-        // Remove unnecessary elements (ads, share buttons, etc.)
-        mainContent.find("aside, .sidebar, .related-posts, .comments, .advertisement, .social-share").remove();
+        // Remove unwanted elements
+        unwantedSelectors.forEach((selector) => $(selector).remove());
 
-        // Extract only relevant elements
-        mainContent.find("h1, h2, h3, h4, p, ul, ol, blockquote").each((_, element) => {
-            markdownContent += turndownService.turndown($(element).html()) + "\n\n";
-        });
+        // Convert to Markdown
+        const markdown = turndownService.turndown(articleHtml);
 
-        if (!markdownContent.trim()) return res.status(404).send("❌ No readable content found.");
-
-        // Set response headers and send the markdown result
+        // Display the Markdown file in the browser
         res.setHeader("Content-Disposition", "inline");
-        res.setHeader("Content-Type", "text/markdown");
-        res.send(markdownContent);
+        res.setHeader("Content-Type", "text/plain");
+        res.send(markdown);
     } catch (error) {
         console.error("Error:", error.message);
-        return res.status(500).send("❌ Failed to fetch or process the URL.");
+        return res.status(500).send("Failed to fetch or process the URL.");
     }
 });
 
 app.listen(port, () => {
-    console.log(`🚀 Server running at http://localhost:${port}`);
+    console.log(`Server running at http://localhost:${port}`);
 });
