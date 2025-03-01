@@ -92,7 +92,7 @@ app.get("/", async (req, res) => {
                 let markdownContent = "";
 
                 // Find all article elements and div.entry-content
-                const possibleContainers = $('article, div.entry-content');
+                const possibleContainers = $('article, div.entry-content, div.chakra-stack.css-ar-svx65p, div.article__content');
                 let mainContainer = null;
                 let maxLength = 0;
 
