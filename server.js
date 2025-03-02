@@ -58,7 +58,7 @@ turndownService.addRule('tables', {
 app.get("/", async (req, res) => {
     const url = req.query.url;
     if (!url) {
-        return res.status(400).send("Please provide a URL as ?url=yourpage.com");
+        return res.status(400).send("Please provide a URL");
     }
 
     const headers = {
