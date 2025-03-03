@@ -23,19 +23,12 @@ turndownService.addRule("em", {
 
 turndownService.addRule("links", {
     filter: "a",
-    replacement: (content, node) => {
-        const href = node.getAttribute("href");
-        return href ? `[${content}](${href})` : content;
-    }
+    replacement: (content) => content  // Only keep link text, remove URLs
 });
 
 turndownService.addRule("images", {
     filter: "img",
-    replacement: (content, node) => {
-        const src = node.getAttribute("src");
-        const alt = node.getAttribute("alt") || "image";
-        return src ? `![${alt}](${src})` : "";
-    }
+    replacement: () => ""  // Remove images completely
 });
 
 // Add a custom rule for tables
@@ -54,6 +47,13 @@ turndownService.addRule('tables', {
         return content;
     }
 });
+
+function isMainContentContainer(container) {
+    return container.attr('id')?.includes('main') || 
+           container.attr('class')?.includes('main') ||
+           container.attr('role') === 'main' ||
+           container.parents('[role="main"]').length > 0;
+}
 
 app.get("/", async (req, res) => {
     const url = req.query.url;
@@ -80,7 +80,7 @@ app.get("/", async (req, res) => {
 
     while (retryCount < maxRetries) {
         try {
-            const { data } = await axios.get(url, {
+            const { data } = await axios.get(encodeURI(url), {
                 headers,
                 maxRedirects: 5,
                 timeout: 10000,
@@ -92,7 +92,11 @@ app.get("/", async (req, res) => {
                 let markdownContent = "";
 
                 // Find all article elements and div.entry-content
-                const possibleContainers = $('article, div.entry-content, div.chakra-stack.css-ar-svx65p, div.article__content');
+                const possibleContainers = $(
+                    'article, div.entry-content, div.chakra-stack.css-ar-svx65p, ' +
+                    'div.article__content, div.post-body, div.description-article, ' +
+                    'div.single-content, div.status-publish hentry, div.pagecontent'
+                );
                 let mainContainer = null;
                 let maxLength = 0;
 
@@ -111,16 +115,23 @@ app.get("/", async (req, res) => {
                     // Prioritize containers that have main content indicators
                     // or choose the one with the most content
                     if (isMainContent || contentLength > maxLength) {
-                        maxLength = contentLength;
                         mainContainer = container;
+                        maxLength = contentLength;
                     }
                 });
 
                 if (mainContainer) {
-                    // Process all content in document order
-                    mainContainer.find('h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table').each((_, element) => {
-                        markdownContent += turndownService.turndown($.html(element)) + "\n\n";
-                    });
+                    markdownContent = mainContainer
+                        .find('h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table')
+                        .toArray()
+                        .reduce((acc, element) => {
+                            const $el = $(element);
+                            // Remove all img tags completely
+                            $el.find('img').remove();
+                            // Remove href attributes from links while keeping their text
+                            $el.find('a').removeAttr('href');
+                            return acc + turndownService.turndown($.html($el)) + "\n\n";
+                        }, "");
                 }
 
                 if (!markdownContent.trim()) {
@@ -129,7 +140,7 @@ app.get("/", async (req, res) => {
 
                 // Display the Markdown file in the browser
                 res.setHeader("Content-Disposition", "inline");
-                res.setHeader("Content-Type", "text/markdown");
+                res.setHeader("Content-Type", "text/plain");
                 res.send(markdownContent);
             }
 
