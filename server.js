@@ -55,6 +55,25 @@ function isMainContentContainer(container) {
            container.parents('[role="main"]').length > 0;
 }
 
+function shouldExcludeElement($, element) {
+    const classAttr = $(element).attr('class') || '';
+    const excludePatterns = [
+        'related',
+        'sidebar',
+        'ad',
+        'menu',
+        'social',
+        'tag',
+        'author',
+        'share',
+        'nav'
+    ];
+    
+    return excludePatterns.some(pattern => 
+        classAttr.toLowerCase().includes(pattern)
+    );
+}
+
 app.get("/", async (req, res) => {
     const url = req.query.url;
     if (!url) {
@@ -95,7 +114,8 @@ app.get("/", async (req, res) => {
                 const possibleContainers = $(
                     'article, div.entry-content, div.chakra-stack.css-ar-svx65p, ' +
                     'div.article__content, div.post-body, div.description-article, ' +
-                    'div.single-content, div.status-publish hentry, div.pagecontent'
+                    'div.single-content, div.status-publish hentry, div.pagecontent, ' +
+                    'div.message-content '
                 );
                 let mainContainer = null;
                 let maxLength = 0;
@@ -121,6 +141,13 @@ app.get("/", async (req, res) => {
                 });
 
                 if (mainContainer) {
+                    // First remove unwanted elements
+                    mainContainer.find('*').each((_, element) => {
+                        if (shouldExcludeElement($, element)) {
+                            $(element).remove();
+                        }
+                    });
+
                     markdownContent = mainContainer
                         .find('h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table')
                         .toArray()
