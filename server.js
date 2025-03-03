@@ -66,7 +66,9 @@ function shouldExcludeElement($, element) {
         'tag',
         'author',
         'share',
-        'nav'
+        'nav',
+        'comment',
+        'message-cell--user'
     ];
     
     return excludePatterns.some(pattern => 
@@ -109,53 +111,54 @@ app.get("/", async (req, res) => {
             if (data) {
                 const $ = cheerio.load(data);
                 let markdownContent = "";
-
-                // Find all article elements and div.entry-content
-                const possibleContainers = $(
-                    'article, div.entry-content, div.chakra-stack.css-ar-svx65p, ' +
-                    'div.article__content, div.post-body, div.description-article, ' +
-                    'div.single-content, div.status-publish hentry, div.pagecontent, ' +
-                    'div.message-content '
-                );
                 let mainContainer = null;
-                let maxLength = 0;
 
-                // Find the container with the most content
-                possibleContainers.each((_, element) => {
-                    const container = $(element);
-                    // Check if this container has common main content indicators
-                    const isMainContent = 
-                        container.attr('id')?.includes('main') || 
-                        container.attr('class')?.includes('main') ||
-                        container.attr('role') === 'main' ||
-                        container.parents('[role="main"]').length > 0;
+                // First attempt: Look for article or div.entry-content
+                mainContainer = $('article, div.entry-content, div.wysiwyg, div.pagecontent, div.chakra-stack.css-ar-1urnsre').first();
 
-                    const contentLength = container.text().trim().length;
-                    
-                    // Prioritize containers that have main content indicators
-                    // or choose the one with the most content
-                    if (isMainContent || contentLength > maxLength) {
-                        mainContainer = container;
-                        maxLength = contentLength;
-                    }
-                });
+                // If not found, look for div with most paragraph content
+                if (!mainContainer.length) {
+                    let maxParagraphs = 0;
+                    $('div').each((_, div) => {
+                        const paragraphCount = $(div).find('p').length;
+                        if (paragraphCount > maxParagraphs) {
+                            maxParagraphs = paragraphCount;
+                            mainContainer = $(div);
+                        }
+                    });
+                }
 
-                if (mainContainer) {
-                    // First remove unwanted elements
+                if (mainContainer.length) {
+                    // Remove unwanted elements first
                     mainContainer.find('*').each((_, element) => {
                         if (shouldExcludeElement($, element)) {
                             $(element).remove();
                         }
                     });
 
+                    // Function to check if element has direct text
+                    const hasDirectText = (element) => {
+                        return $(element).contents().filter((_, content) => 
+                            content.nodeType === 3 && content.data.trim().length > 0
+                        ).length > 0;
+                    };
+
+                    // Collect content
                     markdownContent = mainContainer
-                        .find('h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table')
+                        .find('h1, h2, h3, h4, h5, h6, p, span, li, ol, table, tr, th, td, div')
+                        .filter((_, element) => {
+                            // Include div only if it has direct text
+                            if (element.tagName.toLowerCase() === 'div') {
+                                return hasDirectText(element);
+                            }
+                            return true;
+                        })
                         .toArray()
                         .reduce((acc, element) => {
                             const $el = $(element);
-                            // Remove all img tags completely
+                            // Remove images
                             $el.find('img').remove();
-                            // Remove href attributes from links while keeping their text
+                            // Remove link URLs but keep text
                             $el.find('a').removeAttr('href');
                             return acc + turndownService.turndown($.html($el)) + "\n\n";
                         }, "");
